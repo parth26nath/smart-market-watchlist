@@ -1,0 +1,17 @@
+{
+  "name": "smart-market-watchlist",
+  "private": true,
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/web"
+  ],
+  "scripts": {
+    "setup": "npm run --workspace packages/server db:setup && npm run --workspace packages/server seed",
+    "dev": "npm run --workspace packages/server dev & npm run --workspace packages/web dev & wait",
+    "dev:server": "npm run --workspace packages/server dev",
+    "dev:web": "npm run --workspace packages/web dev",
+    "build": "npm run --workspace packages/shared build && npm run --workspace packages/server build && npm run --workspace packages/web build",
+    "test": "npm run --workspace packages/server test"
+  }
+}

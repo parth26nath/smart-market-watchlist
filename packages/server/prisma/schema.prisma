@@ -1,0 +1,186 @@
+// Smart Market Watchlist — storage schema.
+// SQLite for zero-setup local dev (see DECISIONS.md §7). Enums are plain strings
+// with values validated in application code, since SQLite has no native enum type.
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String // "scrypt:<saltHex>:<hashHex>"
+  createdAt    DateTime @default(now())
+
+  sessions   Session[]
+  watchlists Watchlist[]
+  watermarks Watermark[]
+  events     ChangeEvent[]
+}
+
+model Session {
+  token     String   @id
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Watchlist {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items WatchlistItem[]
+
+  @@index([userId])
+}
+
+model WatchlistItem {
+  id            String   @id @default(cuid())
+  watchlistId   String
+  symbol        String
+  alias         String?
+  thresholdHigh Float?
+  thresholdLow  Float?
+  addedAt       DateTime @default(now())
+
+  watchlist Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  symbolRef Symbol    @relation(fields: [symbol], references: [symbol])
+
+  @@unique([watchlistId, symbol])
+  @@index([symbol])
+}
+
+// Static-ish reference + cached polling-tier assignment (recomputed periodically
+// by the scheduler from live demand/volatility, not on every request).
+model Symbol {
+  symbol        String   @id
+  name          String
+  sector        String
+  tier          String   @default("warm") // "hot" | "warm" | "cold"
+  tierUpdatedAt DateTime @default(now())
+
+  watchlistItems WatchlistItem[]
+  observations   Observation[]
+  dailyBars      DailyBar[]
+  watermarks     Watermark[]
+  events         ChangeEvent[]
+  conflicts      IngestionConflict[]
+}
+
+// Append-only raw quote ticks. Never mutated, never deleted (quarantined rows
+// are kept, just excluded from calculations) — see DECISIONS.md §4.
+model Observation {
+  id         String   @id @default(cuid())
+  symbol     String
+  source     String
+  observedAt DateTime // when we fetched it
+  asOf       DateTime // exchange/provider timestamp
+  price      Float
+  volume     Float?
+  quality    String   @default("ok") // "ok" | "quarantined" | "rejected"
+  rawPayload String? // JSON string, for audit/debugging
+
+  symbolRef Symbol @relation(fields: [symbol], references: [symbol])
+
+  @@index([symbol, asOf])
+  @@index([symbol, observedAt])
+}
+
+// Derived daily OHLCV bars — the substrate for volatility/ATR/volume-baseline/
+// gap/structural/correlation calculations. Upserted per (symbol, sessionDate);
+// re-polling a session in progress replaces the provisional row, never appends
+// a second row for the same date (idempotent ingestion, DECISIONS.md §5).
+model DailyBar {
+  id                        String   @id @default(cuid())
+  symbol                    String
+  sessionDate               String // "YYYY-MM-DD", exchange-local calendar date
+  open                      Float
+  high                      Float
+  low                       Float
+  close                     Float
+  volume                    Float
+  source                    String
+  isProvisional             Boolean  @default(true)
+  quality                   String   @default("ok") // "ok" | "excluded_from_baseline"
+  corporateActionSuspected  Boolean  @default(false)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  symbolRef Symbol @relation(fields: [symbol], references: [symbol])
+
+  @@unique([symbol, sessionDate])
+  @@index([symbol, sessionDate])
+}
+
+// One row per (user, symbol) — "what has this user actually acknowledged."
+// Forward-only: application code enforces monotonic advance (DECISIONS.md §1).
+model Watermark {
+  userId               String
+  symbol               String
+  lastAckAsOf          DateTime? // boundary timestamp of the last acknowledged observation/bar; null = never seen
+  lastAckPrice         Float? // price observed at that exact boundary — resolved once, at ack time
+  lastAckObservationId String?
+  acknowledgedAt       DateTime? // when the ack happened (server clock)
+  lastRenderedAt       DateTime? // non-authoritative, UI copy only — never read by the significance engine
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbolRef Symbol @relation(fields: [symbol], references: [symbol])
+
+  @@id([userId, symbol])
+}
+
+// Persisted, de-duplicated output of the significance engine. Uniqueness on
+// the signature is what makes "reported once, acknowledged, never resurfaces"
+// hold without a separate cooldown-timer subsystem (DECISIONS.md §3.8).
+model ChangeEvent {
+  id             String    @id @default(cuid())
+  userId         String
+  symbol         String
+  type           String // ChangeEventType
+  windowKey      String // watermark-id (price_move) or session-date/bar-pair (others)
+  signature      String    @unique // `${userId}:${symbol}:${type}:${windowKey}`
+  score          Float     @default(0)
+  headline       String
+  detail         String
+  metricsJson    String // JSON string of the numbers behind the headline
+  windowStart    DateTime
+  detectedAt     DateTime  @default(now())
+  lastUpdatedAt  DateTime  @default(now())
+  acknowledgedAt DateTime?
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbolRef Symbol @relation(fields: [symbol], references: [symbol])
+
+  @@index([userId, acknowledgedAt])
+  @@index([symbol])
+}
+
+// Audit trail for source/retry disagreements — logged, never silently
+// overwritten (DECISIONS.md §4).
+model IngestionConflict {
+  id         String   @id @default(cuid())
+  symbol     String
+  asOf       DateTime
+  sourceA    String
+  valueA     Float
+  sourceB    String
+  valueB     Float
+  resolution String // e.g. "newer_as_of:sourceB" | "authority_tie_break:sourceA"
+  loggedAt   DateTime @default(now())
+
+  symbolRef Symbol @relation(fields: [symbol], references: [symbol])
+
+  @@index([symbol])
+}
