@@ -9,9 +9,15 @@ export class ApiError extends Error {
   }
 }
 
+// In local dev, Vite proxies /api to the backend (same-origin, cookies just work).
+// On a static host with no backend colocated (e.g. a frontend-only Vercel deploy),
+// point this at a separately-deployed API via VITE_API_BASE at build time.
+const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (res.status === 204) return undefined as T;

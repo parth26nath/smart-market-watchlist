@@ -10,3 +10,4 @@ packages/server/prisma/test.db
 packages/server/prisma/test.db-journal
 packages/server/data
 .DS_Store
+*.tsbuildinfo
