@@ -1,4 +1,4 @@
-import { barsAfter, completedBars, trailingWindow } from "./windows.js";
+import { barsAfter, completedBars, effectiveSinceDateKey, trailingWindow } from "./windows.js";
 import { averageTrueRange, logReturn, saturatingScore, round } from "./stats.js";
 import type { ChangeEvent, EngineInput } from "./types.js";
 
@@ -17,7 +17,7 @@ const SCORE_K = 1.2;
 export function computeSessionGapEvents(input: EngineInput): ChangeEvent[] {
   const { target, watermark } = input;
   const complete = completedBars(target.bars);
-  const candidates = barsAfter(complete, watermark.asOf ? watermark.asOf.slice(0, 10) : null);
+  const candidates = barsAfter(complete, effectiveSinceDateKey(watermark.asOf, complete));
 
   const events: ChangeEvent[] = [];
   for (const candidate of candidates) {

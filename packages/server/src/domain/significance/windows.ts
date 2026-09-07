@@ -7,6 +7,27 @@ export function barsAfter(bars: DailyBar[], dateKeyExclusive: string | null): Da
   return bars.filter((b) => b.sessionDate > dateKeyExclusive);
 }
 
+/** How far back a symbol watched for the first time ever looks for day-level anomalies. */
+export const FIRST_WATCH_LOOKBACK_SESSIONS = 20;
+
+/**
+ * The date-keyed detectors (volume/gap/structural/correlation) each surface
+ * one row per notable day since the watermark — correct and intentional for a
+ * genuine returning-user absence (DECISIONS.md §3.8), even a multi-week one.
+ * But a symbol with NO watermark yet (never watched before) has its entire
+ * multi-year backfill as "since" — scanning all of it would dump dozens of
+ * incidental, statistically-expected threshold crossings on day one, which is
+ * noise, not signal. So the never-watched case is bounded to a recent
+ * settling-in window instead of the full history; an existing (however old)
+ * watermark is never clamped, since that correctness-across-long-absences
+ * property is exactly what the brief requires.
+ */
+export function effectiveSinceDateKey(watermarkAsOf: string | null, bars: DailyBar[]): string | null {
+  if (watermarkAsOf !== null) return dateKeyOf(watermarkAsOf);
+  if (bars.length <= FIRST_WATCH_LOOKBACK_SESSIONS) return null;
+  return bars[bars.length - 1 - FIRST_WATCH_LOOKBACK_SESSIONS]?.sessionDate ?? null;
+}
+
 /** Completed (non-provisional) bars only — a session in progress has partial volume/range. */
 export function completedBars(bars: DailyBar[]): DailyBar[] {
   return bars.filter((b) => !b.isProvisional);

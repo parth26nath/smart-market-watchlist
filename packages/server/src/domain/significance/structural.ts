@@ -1,4 +1,4 @@
-import { barsAfter, completedBars, trailingWindow } from "./windows.js";
+import { barsAfter, completedBars, effectiveSinceDateKey, trailingWindow } from "./windows.js";
 import { saturatingScore, round } from "./stats.js";
 import type { ChangeEvent, EngineInput } from "./types.js";
 
@@ -16,7 +16,7 @@ const SCORE_FLAT_THRESHOLD = 70; // a threshold crossing is binary — score it 
 export function computeStructuralLevelEvents(input: EngineInput): ChangeEvent[] {
   const { target, watermark, thresholds } = input;
   const complete = completedBars(target.bars);
-  const candidates = barsAfter(complete, watermark.asOf ? watermark.asOf.slice(0, 10) : null);
+  const candidates = barsAfter(complete, effectiveSinceDateKey(watermark.asOf, complete));
 
   const events: ChangeEvent[] = [];
   for (const candidate of candidates) {

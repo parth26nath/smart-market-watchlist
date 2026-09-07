@@ -61,6 +61,15 @@ describe("computeVolumeAnomalyEvents", () => {
     expect(flaggedDates).toEqual([bars[22]!.sessionDate, bars[27]!.sessionDate].sort());
   });
 
+  it("a never-watched symbol gets a bounded recent lookback, not its entire multi-year backlog dumped as noise", () => {
+    // 100 quiet days with an old spike far in the past and a fresh one recently.
+    const bars = flatVolumeBars("2024-01-02", 100, 1_000_000, { 10: 30_000_000, 95: 30_000_000 });
+    const input = baseEngineInput({ target: { symbol: "TEST", sector: "tech", bars, latestObservation: null }, watermark: { asOf: null, price: null } });
+    const events = computeVolumeAnomalyEvents(input);
+    expect(events.some((e) => e.windowKey === bars[95]!.sessionDate)).toBe(true);
+    expect(events.some((e) => e.windowKey === bars[10]!.sessionDate)).toBe(false); // outside the settling-in window
+  });
+
   it("is idempotent per session date: recomputation over the same range yields the same window keys, not duplicates", () => {
     const bars = flatVolumeBars("2026-03-02", 25, 1_000_000, { 24: 20_000_000 });
     const input = baseEngineInput({ target: { symbol: "TEST", sector: "tech", bars, latestObservation: null }, watermark: { asOf: null, price: null } });

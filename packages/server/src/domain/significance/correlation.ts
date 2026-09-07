@@ -1,4 +1,4 @@
-import { barsAfter, completedBars } from "./windows.js";
+import { barsAfter, completedBars, effectiveSinceDateKey } from "./windows.js";
 import { logReturn, mean, pearsonCorrelation, saturatingScore, stdev, round } from "./stats.js";
 import type { ChangeEvent, DailyBar, EngineInput } from "./types.js";
 
@@ -41,7 +41,7 @@ export function computeCorrelationBreakEvents(input: EngineInput): ChangeEvent[]
   const targetReturns = returnsByDate(targetComplete);
   const peerReturnMaps = peers.map((p) => returnsByDate(completedBars(p.bars)));
 
-  const candidates = barsAfter(targetComplete, watermark.asOf ? watermark.asOf.slice(0, 10) : null);
+  const candidates = barsAfter(targetComplete, effectiveSinceDateKey(watermark.asOf, targetComplete));
   const events: ChangeEvent[] = [];
 
   for (const candidate of candidates) {

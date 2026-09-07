@@ -118,24 +118,36 @@ export async function buildFeedForUser(userId: string, clock: Clock): Promise<Fe
       acknowledgedAt: row.acknowledgedAt?.toISOString() ?? null,
     }));
 
-    const ageSeconds = latestObs ? Math.max(0, (now.getTime() - latestObs.observedAt.getTime()) / 1000) : Number.POSITIVE_INFINITY;
+    // No live tick yet (fresh seed, or the provider hasn't polled this session) is
+    // not "no data" — fall back to the last completed session's close, clearly
+    // marked stale, rather than showing a blank price (DECISIONS.md §4: stale
+    // data is labelled, never hidden, and never rendered as an empty state).
+    const lastBar = bars.at(-1) ?? null;
+    const fallbackAsOf = !latestObs && lastBar ? new Date(`${lastBar.sessionDate}T20:00:00.000Z`) : null;
+    const effectivePrice = latestObs?.price ?? lastBar?.close ?? null;
+    const effectiveObservedAt = latestObs?.observedAt ?? fallbackAsOf;
+    const effectiveAsOf = latestObs?.asOf ?? fallbackAsOf;
+    const effectiveSource = latestObs?.source ?? (lastBar ? "last session close" : "");
+
+    const ageSeconds = effectiveObservedAt ? Math.max(0, (now.getTime() - effectiveObservedAt.getTime()) / 1000) : Number.POSITIVE_INFINITY;
     const staleThreshold = sessionState === "open" ? STALE_THRESHOLD_OPEN_SEC : STALE_THRESHOLD_EXTENDED_SEC;
-    const isStale = sessionState !== "closed" && ageSeconds > staleThreshold;
+    const isStale = !latestObs || (sessionState !== "closed" && ageSeconds > staleThreshold);
     if (isStale) providerDegraded = true;
 
-    const quote: QuoteDTO | null = latestObs
-      ? {
-          symbol,
-          price: latestObs.price,
-          asOf: latestObs.asOf.toISOString(),
-          observedAt: latestObs.observedAt.toISOString(),
-          ageSeconds: Math.round(ageSeconds),
-          isStale,
-          source: latestObs.source,
-          sessionState,
-          corporateActionSuspected: bars.at(-1)?.corporateActionSuspected ?? false,
-        }
-      : null;
+    const quote: QuoteDTO | null =
+      effectivePrice !== null && effectiveAsOf
+        ? {
+            symbol,
+            price: effectivePrice,
+            asOf: effectiveAsOf.toISOString(),
+            observedAt: (effectiveObservedAt ?? effectiveAsOf).toISOString(),
+            ageSeconds: Math.round(ageSeconds),
+            isStale,
+            source: effectiveSource,
+            sessionState,
+            corporateActionSuspected: bars.at(-1)?.corporateActionSuspected ?? false,
+          }
+        : null;
 
     cards.push({
       symbol,
